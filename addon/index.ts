@@ -1,8 +1,6 @@
 import { getOwner } from '@ember/application';
 import { warn } from '@ember/debug';
 import { isDestroyed, isDestroying, registerDestructor } from '@ember/destroyable';
-import { schedule } from '@ember/runloop';
-import { waitForPromise } from '@ember/test-waiters';
 
 import type ApplicationInstance from '@ember/application/instance';
 import type { Route } from '@ember/routing';
@@ -117,7 +115,7 @@ async function setupHashSupport(router: EmberRouter) {
 
 const CACHE = new WeakMap<ApplicationInstance, MutationObserver>();
 
-async function eventuallyTryScrollingTo(owner: ApplicationInstance, url?: string) {
+function eventuallyTryScrollingTo(owner: ApplicationInstance, url?: string) {
   // Prevent quick / rapid transitions from continuing to observer beyond their URL-scope
   CACHE.get(owner)?.disconnect();
 
@@ -127,62 +125,9 @@ async function eventuallyTryScrollingTo(owner: ApplicationInstance, url?: string
 
   if (!hash) return;
 
-  await waitForPromise(uiSettled(owner));
-
   if (isDestroyed(owner) || isDestroying(owner)) {
     return;
   }
 
   scrollToHash(hash);
-}
-
-const TIME_SINCE_LAST_MUTATION = 500; // ms
-const MAX_TIMEOUT = 2000; // ms
-
-// exported for testing
-export async function uiSettled(owner: ApplicationInstance) {
-  let timeStarted = new Date().getTime();
-  let lastMutationAt = Infinity;
-  let totalTimeWaited = 0;
-
-  let observer = new MutationObserver(() => {
-    lastMutationAt = new Date().getTime();
-  });
-
-  CACHE.set(owner, observer);
-
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  /**
-   * Wait for DOM mutations to stop until MAX_TIMEOUT
-   */
-  await new Promise((resolve) => {
-    let frame: number;
-
-    function requestTimeCheck() {
-      if (frame) cancelAnimationFrame(frame);
-
-      if (isDestroyed(owner) || isDestroying(owner)) {
-        return;
-      }
-
-      frame = requestAnimationFrame(() => {
-        totalTimeWaited = new Date().getTime() - timeStarted;
-
-        let timeSinceLastMutation = new Date().getTime() - lastMutationAt;
-
-        if (totalTimeWaited >= MAX_TIMEOUT) {
-          return resolve(totalTimeWaited);
-        }
-
-        if (timeSinceLastMutation >= TIME_SINCE_LAST_MUTATION) {
-          return resolve(totalTimeWaited);
-        }
-
-        schedule('afterRender', requestTimeCheck);
-      });
-    }
-
-    schedule('afterRender', requestTimeCheck);
-  });
 }
